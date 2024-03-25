@@ -5,7 +5,7 @@ from scipy import io
 import pdb
 
 def get_lidar(file_name):
-	data = io.loadmat(file_name+".mat")
+	data = io.loadmat(file_name)
 	lidar = []
 	angles = np.double(data['Hokuyo0']['angles'][0][0])
 	ranges = np.array(data['Hokuyo0']['ranges'][0][0]).T
@@ -22,10 +22,8 @@ def get_lidar(file_name):
 	return lidar
 
 
-
 def get_encoder(file_name):
-
-	data = io.loadmat(file_name+".mat")
+	data = io.loadmat(file_name)
 #	pdb.set_trace()
 
 	FR = np.double(data['Encoders']['counts'][0,0][0])
@@ -36,8 +34,7 @@ def get_encoder(file_name):
 	return FL, FR, RL, RR, ts	
 
 def get_imu(file_name):
-
-	data = io.loadmat(file_name+".mat")
+	data = io.loadmat(file_name)
 
 	acc_x = np.double(data['vals'])[0]
 	acc_y = np.double(data['vals'])[1]
@@ -47,6 +44,5 @@ def get_imu(file_name):
 	gyro_z = np.double(data['vals'])[5]	
 	ts = np.double(data['ts'][0])
 #	pdb.set_trace()
-
 	return acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z, ts	
 
