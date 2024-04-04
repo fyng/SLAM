@@ -18,10 +18,10 @@ imu.mat : This has acceleration and angular velocity (please look at load_data.p
 2. Try dead-reckoning with encoder data and plot the robot trajectory
 
 
-3. Try mapping from the first scan and plot the map
+3. Try mapping from the first scan and plot the map ()
 
 
-4. Try occupancy grid map and update the map with new scan data
+4. Try occupancy grid map and update the map with new scan data (lecture 12)
 
 
 5. Try prediction only and plot the robot trajectories (100 for N=100 particles) 
