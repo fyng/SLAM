@@ -36,10 +36,12 @@ def getMapCellsFromRay(xrobot,yrobot,xends,yends, maxMap):
 		error = deltax / 2.
 		y = y0
 		ystep = 0
+		
 		if y0 < y1:
-		  ystep = 1
+			ystep = 1
 		else:
 		  ystep = -1
+		  
 		if steep:
 			for x in np.arange(x0,x1):
 				xyio = np.concatenate((xyio,np.array([[y],[x]])),axis=1)

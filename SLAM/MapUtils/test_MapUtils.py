@@ -3,13 +3,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import io
-import matplotlib.image as mpimg
 import MapUtils as MU
-from mpl_toolkits.mplot3d import Axes3D
-import time
-import pdb
+
 # todo load mat
-dataIn = io.loadmat("../data/Hokuyo20.mat")
+dataIn = io.loadmat("../../data/train/Hokuyo20.mat")
 ranges = np.array([dataIn['Hokuyo0']['ranges'][0][0][:,0]]).T
 angles = np.double(dataIn['Hokuyo0']['angles'][0][0])
 
@@ -30,8 +27,8 @@ MAP['sizey']  = int(np.ceil((MAP['ymax'] - MAP['ymin']) / MAP['res'] + 1))
 MAP['map'] = np.zeros((MAP['sizex'],MAP['sizey']),dtype=np.int8) #DATA TYPE: char or int8
 
 # xy position in the sensor frame
-xs0 = np.array([ranges*np.cos(angles)]);
-ys0 = np.array([ranges*np.sin(angles)]);
+xs0 = np.array([ranges*np.cos(angles)])
+ys0 = np.array([ranges*np.sin(angles)])
 
 # convert position in the map frame here 
 Y = np.concatenate([np.concatenate([xs0,ys0],axis=0),np.zeros(xs0.shape)],axis=0)
@@ -52,12 +49,13 @@ x_range = np.arange(-0.2,0.2+0.05,0.05)
 y_range = np.arange(-0.2,0.2+0.05,0.05)
 
 #plot original lidar points
-fig1 = plt.figure(1);
+fig1 = plt.figure(1)
 plt.plot(xs0,ys0,'.k')
 
 #plot map
-fig2 = plt.figure(2);
-plt.imshow(MAP['map'],cmap="hot");
+fig2 = plt.figure(2)
+plt.imshow(MAP['map'],cmap="hot")
+plt.savefig('../../plots/map.png')
 
 print("Testing getMapCellsFromRay...")
 r = MU.getMapCellsFromRay(0,1,[10, 9],[5, 6],1000)
