@@ -33,9 +33,9 @@ for file in os.listdir(train_path):
         print(f'Skipped unrecognized filename configuration: {file}')
     
 # set car variables
-width=700
-wheel_radius=254 / 2
-enc_to_rev=360   
+width = 700
+wheel_radius = 254 / 2
+enc_to_rev = 360   
 
 # try to visualize one of the data point
 for run in list(data_dict.keys()):
@@ -46,11 +46,11 @@ for run in list(data_dict.keys()):
     mapping.load_encoder(data_dict[run]['Encoder'])
     mapping.load_lidar(data_dict[run]['Lidar'])
     mapping.load_imu(data_dict[run]['IMU'])
-    pos = mapping.dead_reckoning()
+    xs,ys = mapping.dead_reckoning()
+    map = mapping.map_lidar()
 
-    print(pos[-1,:])
-
-    plt.plot(pos[:,-2], pos[:,-1], '-')
+    plt.imshow(map, cmap='RdBu', interpolation='nearest')
+    plt.plot(xs, ys, '-')
     plt.savefig(f'plots/map{run}.png')
     plt.close()
 
