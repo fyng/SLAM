@@ -35,8 +35,8 @@ if __name__ == "__main__":
         MAP['map'] = np.zeros((MAP['sizex'],MAP['sizey']),dtype=np.int8) #DATA TYPE: char or int8
 
         # xy position in the sensor frame
-        xs0 = np.array([ranges*np.cos(angles)]);
-        ys0 = np.array([ranges*np.sin(angles)]);
+        xs0 = np.array([ranges*np.cos(angles)])
+        ys0 = np.array([ranges*np.sin(angles)])
 
         # convert position in the map frame here
         Y = np.concatenate([np.concatenate([xs0,ys0],axis=0),
@@ -53,7 +53,7 @@ if __name__ == "__main__":
         end1 = time.time()
         r2 = mu.getMapCellsFromRay_fclad(np.ceil(-MAP['xmin']/ MAP['res']) - 1,
                                    np.ceil(-MAP['ymin']/ MAP['res']) - 1,
-                                   xis[0],yis[0], 400);
+                                   xis[0],yis[0], 400)
         end2 = time.time()
         if np.sum(r == r2) == np.size(r):
             print("...Test passed.")
