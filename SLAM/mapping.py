@@ -3,6 +3,7 @@ import numpy as np
 from SLAM.utils.load_data import get_lidar, get_encoder, get_imu
 from SLAM.MapUtilsCython import MapUtils_fclad as maputils
 from SLAM.MapUtils import MapUtils as maputils_py
+from tqdm import tqdm
 
 class SLAM():
     def __init__(self, width=470, wheel_radius=127, enc_to_rev=360):
@@ -13,7 +14,7 @@ class SLAM():
 
         # map params (units in meters)
         self.mapsize = 30 # seems good enough from the current plots
-        self.mapres = 0.05 
+        self.mapres = 0.02 
 
         self.data = {}
         self.pos = None 
@@ -104,11 +105,12 @@ class SLAM():
         Map lidar data: rays of (range, angle) 
         to grid occupancy (x, y) on the map
         '''
-        # get lidar data
         lidar = self.data['lidar']
         n_timesteps = len(lidar)
         t_encoder = self.pos[:,0]
-        for i in range(n_timesteps):
+
+        print('Mapping lidar data...')
+        for i in tqdm(range(n_timesteps)):
             # align lidar and encoder time
             i_aligned = np.abs(t_encoder - lidar[i]['t']).argmin()  
             t = t_encoder[i_aligned]
