@@ -1,6 +1,6 @@
 # Jinwook Huh
 
-import utils.load_data as ld
+import SLAM.utils.load_data as ld
 import numpy as np
 import matplotlib.pyplot as plt
 
