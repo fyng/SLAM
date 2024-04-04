@@ -15,8 +15,8 @@ class SLAM():
         self.pos = None 
         self.map, self.map_meta = self._init_map()
         # todo tune this
-        self.logodds_occ = 0.9
-        self.logodds_free = -0.4
+        self.logodds_occ = 2
+        self.logodds_free = -1
 
     def _init_map(self):
         # init MAP
@@ -93,14 +93,8 @@ class SLAM():
             passthrough: [2, P] array of (x, y) indices of free cells
             obstables: [2, P_obst] array of (x, y) indices of occupied cells
         '''
-        for i in range(passthrough.shape[1]):
-            x, y = passthrough[:, i]
-            self.map[x, y] += self.logodds_free
-
-        for i in range(obstables.shape[1]):
-            x, y = obstables[:, i]
-            self.map[x, y] += self.logodds_occ
-
+        self.map[passthrough[0,:], passthrough[1,:]] += self.logodds_free
+        self.map[obstables[0,:], obstables[1,:]] += self.logodds_occ
 
     def map_lidar(self):
         '''
