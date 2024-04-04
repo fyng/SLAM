@@ -40,7 +40,7 @@ def getMapCellsFromRay(xrobot,yrobot,xends,yends, maxMap):
 		if y0 < y1:
 			ystep = 1
 		else:
-		  ystep = -1
+			ystep = -1
 		  
 		if steep:
 			for x in np.arange(x0,x1):
