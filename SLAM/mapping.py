@@ -11,24 +11,30 @@ class SLAM():
         self.wheel_radius = wheel_radius
         self.enc_to_rev = enc_to_rev
 
+        # map params (units in meters)
+        self.mapsize = 30 # seems good enough from the current plots
+        self.mapres = 0.05 
+
         self.data = {}
         self.pos = None 
+        # map params
         self.map, self.map_meta = self._init_map()
-        # todo tune this
-        self.logodds_occ = 2
-        self.logodds_free = -1
+        self.logodds_occ = 0.9
+        self.logodds_free = -0.5
+        self.logodds_range = 15
+
 
     def _init_map(self):
         # init MAP
         MAP = {}
-        MAP['res']   = 0.05 #meters
-        MAP['xmin']  = -30  #meters
-        MAP['ymin']  = -30 # seems good enough from the current plots
-        MAP['xmax']  =  30
-        MAP['ymax']  =  30
+        MAP['res'] = self.mapres
+        MAP['xmin'] = -self.mapsize 
+        MAP['ymin'] = -self.mapsize 
+        MAP['xmax'] = self.mapsize
+        MAP['ymax'] = self.mapsize  
         MAP['sizex']  = int(np.ceil((MAP['xmax'] - MAP['xmin']) / MAP['res'] + 1)) #cells
         MAP['sizey']  = int(np.ceil((MAP['ymax'] - MAP['ymin']) / MAP['res'] + 1))
-        map = np.zeros((MAP['sizex'],MAP['sizey']),dtype=np.int8) #DATA TYPE: char or int8
+        map = np.zeros((MAP['sizex'],MAP['sizey']))
         return map, MAP
 
     def _encoder_ticks_to_dist(self, ticks):
@@ -63,7 +69,6 @@ class SLAM():
     def dead_reckoning(self):
         # [t, theta, x, y]
         n_timesteps = len(self.data['t_encoder'])
-
         left = (self.data['FL'] + self.data['RL']) / 2
         right = (self.data['FR'] + self.data['RR']) / 2
 
@@ -71,15 +76,12 @@ class SLAM():
         x, y, theta = 0, 0, 0
         for i, t in enumerate(self.data['t_encoder']):
             theta += (right[i] - left[i]) / self.width
-            
             x += (right[i] + left[i]) / 2 * np.cos(theta)
             y += (right[i] + left[i]) / 2 * np.sin(theta)
-
             pos[i] += np.array([t, theta, x, y])
-        
-        pos[:,-2:] /= 1000 # convert to meters. Probably build a unit engine too
-        self.pos = np.array(pos)
 
+        pos[:,-2:] /= 1000 # convert to meters. Probably build a unit treatment
+        self.pos = np.array(pos)
         x = self._x_meters_to_cells(self.pos[:,-2])
         y = self._y_meters_to_cells(self.pos[:,-1])
 
@@ -95,6 +97,7 @@ class SLAM():
         '''
         self.map[passthrough[0,:], passthrough[1,:]] += self.logodds_free
         self.map[obstables[0,:], obstables[1,:]] += self.logodds_occ
+        self.map = np.clip(self.map, -self.logodds_range, self.logodds_range)
 
     def map_lidar(self):
         '''
