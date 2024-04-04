@@ -10,7 +10,7 @@ import time
 
 if __name__ == "__main__":
 
-    dataIn = io.loadmat("../data/Hokuyo20.mat")
+    dataIn = io.loadmat("../../data/train/Hokuyo20.mat")
     speedup = np.zeros(10)
     for i in range(0, 10000, 1000):
         print(i)
