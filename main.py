@@ -10,10 +10,6 @@ from SLAM.mapping import SLAM
 
 train_path = Path('data/train')
 
-width=470
-wheel_diameter=254
-enc_to_rev=360
-
 # map current file structure to a file dictionary
 data_dict = {}
 for file in os.listdir(train_path):
@@ -36,17 +32,25 @@ for file in os.listdir(train_path):
     else:
         print(f'Skipped unrecognized filename configuration: {file}')
     
+# set car variables
+width=700
+wheel_radius=254 / 2
+enc_to_rev=360   
+
 # try to visualize one of the data point
 for run in list(data_dict.keys()):
-    print(run)
+    print(run, data_dict[run]['Encoder'])
 
-    mapping = SLAM(width, wheel_diameter, enc_to_rev)
+    mapping = SLAM(width=width, wheel_radius=wheel_radius, enc_to_rev=enc_to_rev)
+
     mapping.load_encoder(data_dict[run]['Encoder'])
     mapping.load_lidar(data_dict[run]['Lidar'])
     mapping.load_imu(data_dict[run]['IMU'])
     pos = mapping.dead_reckoning()
 
-    plt.plot(pos[:,1], pos[:,2], '-')
+    print(pos[-1,:])
+
+    plt.plot(pos[:,-2], pos[:,-1], '-')
     plt.savefig(f'plots/map{run}.png')
     plt.close()
 
