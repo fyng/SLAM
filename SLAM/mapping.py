@@ -27,7 +27,7 @@ class SLAM():
 
         # particle filter params
         # FIXME: update params!
-        self.n_particles = 30  #recommended 30-100
+        self.n_particles = 4  #recommended 30-100
         self.xy_noise = self.mapres # std = 1 grid 
         self.theta_noise = 0.5 * 2 * np.pi / 360 # std = 0.5 degree
         self.seeding_interval = 10 # prune and reseed particles every 10 timesteps
@@ -159,11 +159,9 @@ class SLAM():
 
         for i in range(n_particles):
             # compute L2 norm between map and particle
-            error = map[i] - self.map
-            error = error[mask]
-            weights[i] = np.linalg.norm(error)
+            error = (map[i] - self.map)[mask]
+            weights[i] = 1 / (np.linalg.norm(error) + 1e-10)
 
-        weights += 1e-10 # avoid zero division
         weights /= np.sum(weights)
         resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
 
@@ -213,7 +211,7 @@ class SLAM():
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [x, y, theta]
         particle_maps = self._init_particle_map() # [n_particles, sizex, sizey] 
         for i, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
-            i+=1 # first timestep is a dummy
+            i_pos = i + 1 # first timestep is a dummy
             if i == self.seeding_interval:
                 # save out the first consensus map
                 # no noise added so just take the first particle
@@ -221,22 +219,22 @@ class SLAM():
 
             if i % self.seeding_interval == 0:
                 resampled_indices = self.resample_particle_from_map(particle_maps)
-                pos[i] = pos[i-1][resampled_indices]
+                pos[i_pos] = pos[i_pos-1][resampled_indices]
 
                 best_particple = np.bincount(resampled_indices).argmax()
                 self.map = particle_maps[best_particple]
                 particle_maps = particle_maps[resampled_indices]
             
                 motion_noise = self._sample_motion_noise(self.n_particles)
-                pos[i] = pos[i-1] + motion_noise
+                pos[i_pos] = pos[i_pos-1] + motion_noise
             else:
-                pos[i] = pos[i-1]
+                pos[i_pos] = pos[i_pos-1]
                 
-            d_pos = self.dead_reckoning(pos[i], left[i], right[i])
-            pos[i] += d_pos
+            d_pos = self.dead_reckoning(pos[i_pos], left[i], right[i])
+            pos[i_pos] += d_pos
 
             # map lidar data to each particle
-            particle_maps = self.map_lidar(pos[i], particle_maps, idx)
+            particle_maps = self.map_lidar(pos[i_pos], particle_maps, idx)
             
         # final update: write to self.map
         best_particple = np.bincount(self.resample_particle_from_map(particle_maps)).argmax()
