@@ -16,8 +16,8 @@ class SLAM():
         self.enc_to_rev = enc_to_rev
 
         # map params (units in meters)
-        self.mapsize = 30 # seems good enough from the current plots
-        self.mapres = 0.02 
+        self.mapsize = 200 # seems good enough from the current plots
+        self.mapres = 0.05 
 
         # map params
         self.map, self.map_params = self._init_map()
@@ -26,9 +26,8 @@ class SLAM():
         self.logodds_range = 15
 
         # particle filter params
-        # FIXME: update params!
         self.n_particles = 1  #recommended 30-100
-        self.xy_noise = self.mapres # std = 1 grid 
+        self.xy_noise = self.mapres * 1000 # std = 1 grid 
         self.theta_noise = 0.5 * 2 * np.pi / 360 # std = 0.5 degree
         self.seeding_interval = 10 # prune and reseed particles every 10 timesteps
 
@@ -49,7 +48,7 @@ class SLAM():
 
     def _encoder_ticks_to_dist(self, ticks):
         radians = ticks / self.enc_to_rev * 2 * np.pi 
-        return radians * self.wheel_radius
+        return radians * self.wheel_radius # in mm
     
     def _x_meters_to_cells(self, x):
         return np.array([np.ceil((x - self.map_params['xmin']) / self.map_params['res']).astype(np.int16)-1])
@@ -59,7 +58,7 @@ class SLAM():
 
     def load_encoder(self, path):
         # load encoder data and convert to distance
-        FL, FR, RL, RR, ts = get_encoder(path)
+        FR, FL, RR, RL, ts = get_encoder(path)
         FL = self._encoder_ticks_to_dist(FL)
         FR = self._encoder_ticks_to_dist(FR)
         RL = self._encoder_ticks_to_dist(RL)
@@ -80,8 +79,6 @@ class SLAM():
         '''
         Align encoder timestamps with lidar timestamps
         '''
-        # TODO: implement this for IMU data too
-
         # align encoder to lidar timepoint
         t_lidar = [data['t'] for data in self.data['lidar']]
         enc_lidar_idx = np.zeros(len(self.data['t_encoder']), dtype=int)
@@ -89,6 +86,8 @@ class SLAM():
             lidar_idx = np.abs(t_lidar - t).argmin()
             enc_lidar_idx[i] = lidar_idx
         self.data['idx_enc_to_lidar'] = enc_lidar_idx
+
+        # align IMU if have time
 
     def _update_map_occupancy(self, map, passthrough, obstables):
         '''
@@ -98,7 +97,7 @@ class SLAM():
             map: [sizex, sizey] array of occupancy grid map
             passthrough: [2, P] array of (x, y) indices of free cells
             obstables: [2, P_obst] array of (x, y) indices of occupied cells
-        '''
+        '''   
         map[passthrough[0,:], passthrough[1,:]] += self.logodds_free
         map[obstables[0,:], obstables[1,:]] += self.logodds_occ
         return np.clip(map, -self.logodds_range, self.logodds_range)
@@ -108,15 +107,15 @@ class SLAM():
         Map lidar data: rays of (range, angle) to grid occupancy (x, y) on the map
 
         Params:
-            pos: [n_particles, 3] array of (theta, x, y)
+            pos: [n_particles, 3] array of (theta, x, y). IN MILLIMETERS
             map: [n_particles, sizex, sizey] array of occupancy grid map
             idx_lidar: index of corresponding lidar data in self.data['lidar']for the given pos 
         '''
         assert pos.shape[0] == map.shape[0]
 
-        theta_platform = pos[:, 0]
-        x_platform = pos[:, 1]
-        y_platform = pos[:, 2]
+        theta_platform = pos[:, -3]
+        x_platform = pos[:, -2] / 1000 # convert to meters
+        y_platform = pos[:, -1] / 1000 # convert to meters
 
         ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
         angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
@@ -158,7 +157,7 @@ class SLAM():
         mask = (self.map != 0)
 
         for i in range(n_particles):
-            # compute L2 norm between map and particle
+            # weigh by inverse of L2 distance
             error = (map[i] - self.map)[mask]
             weights[i] = 1 / (np.linalg.norm(error) + 1e-10)
 
@@ -170,6 +169,7 @@ class SLAM():
     def _sample_motion_noise(self, n_particles):
         '''
         Sample motion noise from a gaussian distribution
+        in MM
         '''
         # sample noise from a gaussian distribution
         x_noise = np.random.normal(0, self.xy_noise, n_particles)
@@ -180,20 +180,20 @@ class SLAM():
 
     def dead_reckoning(self, pos, left_dist, right_dist):
         '''
-        update position for each particle
+        update position for each particle.
+
+        in millimeters
 
         params:
             pos: [n_particles x n_dims], where n_dims[-3:] is [theta, x, y]
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
-        '''        
-        d_pos = np.zeros_like(pos)
-        d_pos[:,-3] += (right_dist - left_dist) / self.width # theta update
-        d_pos[:,-2] += (right_dist + left_dist) / 2 * np.cos(pos[:,-3]) # x update
-        d_pos[:,-1] += (right_dist + left_dist) / 2 * np.sin(pos[:,-3]) # y update
-        d_pos /= 1000 # convert to meters. Probably build a unit treatment
+        '''
+        pos[:,0] += (right_dist - left_dist) / self.width # theta update
+        pos[:,1] += (right_dist + left_dist) / 2 * np.cos(pos[:,0]) # x update
+        pos[:,2] += (right_dist + left_dist) / 2 * np.sin(pos[:,0]) # y update
 
-        return pos + d_pos
+        return pos
     
     def map_localize(self):
         ''''
@@ -207,36 +207,42 @@ class SLAM():
 
         n_timesteps = len(self.data['idx_enc_to_lidar'])
         left = (self.data['FL'] + self.data['RL']) / 2 # in mm
-        right = (self.data['FR'] + self.data['RR']) / 2 # in mm
+        right = (self.data['FR'] + self.data['RR']) / 2
         
-        pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [x, y, theta]
+        pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
         particle_maps = self._init_particle_map() # [n_particles, sizex, sizey] 
-        for i, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
-            i_pos = i + 1 # first timestep is a dummy
-            if i == self.seeding_interval:
+        
+        for t, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
+            t_dummy = t + 1 # first timestep is a dummy
+            
+            if t_dummy == self.seeding_interval:
                 # save out the first consensus map
                 # no noise added so just take the first particle
                 self.map = particle_maps[0]
 
-            if i % self.seeding_interval == 0:
+            pos[t_dummy] += pos[t_dummy-1]
+
+            if t_dummy % self.seeding_interval == 0:
                 resampled_indices = self.resample_particle_from_map(particle_maps)
                 # update map with current best
                 best_particple = np.bincount(resampled_indices).argmax()
                 self.map = particle_maps[best_particple]
+
+                plt.imshow(self.map, cmap='RdBu', interpolation='nearest')
+                plt.savefig(f'plots/{t_dummy}.png')
+
                 # resample particles and their maps
-                pos[i_pos] = pos[i_pos-1][resampled_indices]
-                particle_maps = particle_maps[resampled_indices]
+                pos[t_dummy] = pos[t_dummy][resampled_indices,...]
+                particle_maps = particle_maps[resampled_indices,...] 
                 # add noise
-                pos[i_pos] += self._sample_motion_noise(self.n_particles)
-            else:
-                pos[i_pos] = pos[i_pos-1]
-                
-            d_pos = self.dead_reckoning(pos[i_pos], left[i], right[i])
-            pos[i_pos] += d_pos
+                # pos[t_dummy] += self._sample_motion_noise(self.n_particles)
+
+            pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
 
             # map lidar data to each particle
-            particle_maps = self.map_lidar(pos[i_pos], particle_maps, idx)
-            
+            particle_maps = self.map_lidar(pos[t_dummy], particle_maps, idx)
+
+        
         # final update: write to self.map
         best_particple = np.bincount(self.resample_particle_from_map(particle_maps)).argmax()
         self.map = particle_maps[best_particple]
