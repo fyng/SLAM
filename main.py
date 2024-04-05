@@ -46,11 +46,9 @@ for run in list(data_dict.keys()):
     mapping.load_encoder(data_dict[run]['Encoder'])
     mapping.load_lidar(data_dict[run]['Lidar'])
     mapping.load_imu(data_dict[run]['IMU'])
-    xs,ys = mapping.dead_reckoning()
-    map = mapping.map_lidar()
+    map = mapping.map_localize()
 
     plt.imshow(map, cmap='RdBu', interpolation='nearest')
-    plt.plot(xs, ys, '-')
     plt.savefig(f'plots/map{run}.png')
     plt.close()
 
