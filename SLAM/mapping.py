@@ -27,7 +27,7 @@ class SLAM():
 
         # particle filter params
         # FIXME: update params!
-        self.n_particles = 4  #recommended 30-100
+        self.n_particles = 1  #recommended 30-100
         self.xy_noise = self.mapres # std = 1 grid 
         self.theta_noise = 0.5 * 2 * np.pi / 360 # std = 0.5 degree
         self.seeding_interval = 10 # prune and reseed particles every 10 timesteps
@@ -188,7 +188,7 @@ class SLAM():
             right: int, distance travelled by right wheel since last timestep
         '''        
         pos[:,-3] += (right_dist - left_dist) / self.width # theta update
-        pos[:,-2] = (right_dist + left_dist) / 2 * np.cos(pos[:,-3]) # x update
+        pos[:,-2] += (right_dist + left_dist) / 2 * np.cos(pos[:,-3]) # x update
         pos[:,-1] += (right_dist + left_dist) / 2 * np.sin(pos[:,-3]) # y update
         pos /= 1000 # convert to meters. Probably build a unit treatment
 
@@ -219,14 +219,14 @@ class SLAM():
 
             if i % self.seeding_interval == 0:
                 resampled_indices = self.resample_particle_from_map(particle_maps)
-                pos[i_pos] = pos[i_pos-1][resampled_indices]
-
+                # update map with current best
                 best_particple = np.bincount(resampled_indices).argmax()
                 self.map = particle_maps[best_particple]
+                # resample particles and their maps
+                pos[i_pos] = pos[i_pos-1][resampled_indices]
                 particle_maps = particle_maps[resampled_indices]
-            
-                motion_noise = self._sample_motion_noise(self.n_particles)
-                pos[i_pos] = pos[i_pos-1] + motion_noise
+                # add noise
+                pos[i_pos] += self._sample_motion_noise(self.n_particles)
             else:
                 pos[i_pos] = pos[i_pos-1]
                 
