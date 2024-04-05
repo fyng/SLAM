@@ -49,7 +49,7 @@ for run in list(data_dict.keys()):
     map = mapping.map_localize()
 
     plt.imshow(map, cmap='RdBu', interpolation='nearest')
-    plt.savefig(f'plots/map{run}.png')
+    plt.savefig(f'plots/map{run}_particles.png')
     plt.close()
 
 
