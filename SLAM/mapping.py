@@ -187,12 +187,13 @@ class SLAM():
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
         '''        
-        pos[:,-3] += (right_dist - left_dist) / self.width # theta update
-        pos[:,-2] += (right_dist + left_dist) / 2 * np.cos(pos[:,-3]) # x update
-        pos[:,-1] += (right_dist + left_dist) / 2 * np.sin(pos[:,-3]) # y update
-        pos /= 1000 # convert to meters. Probably build a unit treatment
+        d_pos = np.zeros_like(pos)
+        d_pos[:,-3] += (right_dist - left_dist) / self.width # theta update
+        d_pos[:,-2] += (right_dist + left_dist) / 2 * np.cos(pos[:,-3]) # x update
+        d_pos[:,-1] += (right_dist + left_dist) / 2 * np.sin(pos[:,-3]) # y update
+        d_pos /= 1000 # convert to meters. Probably build a unit treatment
 
-        return pos
+        return pos + d_pos
     
     def map_localize(self):
         ''''
