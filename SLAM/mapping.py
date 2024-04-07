@@ -16,20 +16,20 @@ class SLAM():
         self.enc_to_rev = enc_to_rev
 
         # map params (units in meters)
-        self.mapsize = 200 # seems good enough from the current plots
+        self.mapsize = 60 # seems good enough from the current plots
         self.mapres = 0.05 
 
         # map params
         self.map, self.map_params = self._init_map()
         self.logodds_occ = 0.9 
-        self.logodds_free = -0.3 # 3 passthrough to wipe a hit
+        self.logodds_free = -0.1 # 3 passthrough to wipe a hit
         self.logodds_range = 15
 
         # particle filter params
-        self.n_particles = 1  #recommended 30-100
-        self.xy_noise = self.mapres * 1000 # std = 1 grid 
-        self.theta_noise = 0.5 * 2 * np.pi / 360 # std = 0.5 degree
-        self.seeding_interval = 10 # prune and reseed particles every 10 timesteps
+        self.n_particles = 30  #recommended 30-100
+        self.xy_noise = self.mapres * 1000 / 2 # std = 1 grid 
+        self.theta_noise = 2 * (2 * np.pi / 360) # std = 2 degree
+        self.seeding_interval = 30 # prune and reseed particles every 10 timesteps
 
     def _init_map(self):
         map_params = {}
@@ -151,15 +151,19 @@ class SLAM():
         Resample particles based on the consensus map. The basic idea that if the environment is static, known regions of the map should stay as obstacle/empty space. 
 
         1. If a region is not observed in the consensus map, mask it out from error computation. We cannot a priori say if the region is occupied or not.
-        '''
-        weights = np.zeros(self.n_particles)
-        n_particles = map.shape[0]
-        mask = (self.map != 0)
 
-        for i in range(n_particles):
-            # weigh by inverse of L2 distance
-            error = (map[i] - self.map)[mask]
-            weights[i] = 1 / (np.linalg.norm(error) + 1e-10)
+        params:
+            map: [n_particles, sizex, sizey] array of occupancy grid map
+        '''
+        n_particles = map.shape[0]
+        mask = (np.abs(self.map) > 1) # mask out unknown and low confidence regions
+        prev_map = self.map[mask].reshape(1,-1)
+        particle_maps = map[:,mask]
+        weights = np.corrcoef(np.concatenate((prev_map, particle_maps), axis=0))[0][1:]
+
+        # for i in range(n_particles):
+        #     # weigh by inverse of L2 distance
+        #     weights[i] = np.corrcoef(map[i][mask].reshape(-1), self.map[mask].reshape(-1))
 
         weights /= np.sum(weights)
         resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
@@ -171,12 +175,14 @@ class SLAM():
         Sample motion noise from a gaussian distribution
         in MM
         '''
+        noise = np.zeros((n_particles, 3))
         # sample noise from a gaussian distribution
-        x_noise = np.random.normal(0, self.xy_noise, n_particles)
-        y_noise = np.random.normal(0, self.xy_noise, n_particles)
-        rotation_noise = np.random.normal(0, self.theta_noise, n_particles)
-
-        return np.stack((rotation_noise, x_noise, y_noise), axis=1)
+        # noise[:,0] += np.random.normal(0, self.xy_noise, n_particles)
+        # noise[:,1] += np.random.normal(0, self.xy_noise, n_particles)
+        
+        # try adding only rotation noise.
+        noise[:,2] = np.random.normal(0, self.theta_noise, n_particles)
+        return noise
 
     def dead_reckoning(self, pos, left_dist, right_dist):
         '''
@@ -214,35 +220,32 @@ class SLAM():
         
         for t, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
             t_dummy = t + 1 # first timestep is a dummy
+            pos[t_dummy] += pos[t_dummy-1]
             
             if t_dummy == self.seeding_interval:
                 # save out the first consensus map
                 # no noise added so just take the first particle
                 self.map = particle_maps[0]
-
-            pos[t_dummy] += pos[t_dummy-1]
-
             if t_dummy % self.seeding_interval == 0:
                 resampled_indices = self.resample_particle_from_map(particle_maps)
                 # update map with current best
                 best_particple = np.bincount(resampled_indices).argmax()
                 self.map = particle_maps[best_particple]
 
-                plt.imshow(self.map, cmap='RdBu', interpolation='nearest')
-                plt.savefig(f'plots/{t_dummy}.png')
-
                 # resample particles and their maps
                 pos[t_dummy] = pos[t_dummy][resampled_indices,...]
                 particle_maps = particle_maps[resampled_indices,...] 
-                # add noise
-                # pos[t_dummy] += self._sample_motion_noise(self.n_particles)
+                pos[t_dummy] += self._sample_motion_noise(self.n_particles) # add noise
 
+                # plt.imshow(self.map, cmap='RdBu', interpolation='nearest')
+                # plt.savefig(f'plots/{t_dummy}.png')
+
+            # TODO: make dead reckoning add/subtract instead of override. It's more consistent this way
             pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
 
             # map lidar data to each particle
             particle_maps = self.map_lidar(pos[t_dummy], particle_maps, idx)
 
-        
         # final update: write to self.map
         best_particple = np.bincount(self.resample_particle_from_map(particle_maps)).argmax()
         self.map = particle_maps[best_particple]
