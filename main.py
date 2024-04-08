@@ -33,24 +33,37 @@ for file in os.listdir(train_path):
         print(f'Skipped unrecognized filename configuration: {file}')
     
 # set car variables
-width = 700
+width = 730
 wheel_radius = 254 / 2
 enc_to_rev = 360   
 
 # try to visualize one of the data point
 for run in list(data_dict.keys()):
-    print(run, data_dict[run]['Encoder'])
+    print(run, data_dict[run]['Encoder'], width)
 
     mapping = SLAM(width=width, wheel_radius=wheel_radius, enc_to_rev=enc_to_rev)
 
     mapping.load_encoder(data_dict[run]['Encoder'])
     mapping.load_lidar(data_dict[run]['Lidar'])
     mapping.load_imu(data_dict[run]['IMU'])
-    map = mapping.map_localize()
 
-    plt.imshow(map, cmap='RdBu', interpolation='nearest')
-    plt.savefig(f'plots/map{run}_particles.png')
+    # map = mapping.map_localize()
+    # plt.imshow(map, cmap='RdBu')
+    # plt.savefig(f'plots/map{run}_particles.png')
+    # plt.close()
+
+    map = mapping.odometry()
+    plt.imshow(map, cmap='RdBu')
+    plt.savefig(f'plots/test3_map{run}.png')
     plt.close()
+
+    # pos = mapping.get_pos()
+    # plt.plot(pos[...,0], pos[...,1], '-')
+    # plt.savefig(f'plots/map{run}_path.png')
+    # plt.close()
+
+    # plt.savefig(f'plots/path.png')
+    # plt.close()
 
 
         
