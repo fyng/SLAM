@@ -27,7 +27,7 @@ class SLAM():
         self.logodds_range = 10
 
         # particle filter params
-        self.n_particles = 1  #recommended 30-100
+        self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
         self.theta_noise = 0.1 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
@@ -163,7 +163,7 @@ class SLAM():
 
     #     return resampled_indices
     
-    def new_resample_particle_from_map(self, pos, map, idx_lidar):
+    def update_weights(self, pos, map, prev_weghts, idx_lidar):
         '''
         Given a set of particles and their position, calculate the lidar scan for each particle. 
 
@@ -198,13 +198,11 @@ class SLAM():
         xis = self._x_meters_to_cells(xs)[0]
         yis = self._y_meters_to_cells(ys)[0]
 
-        weights = map[xis, yis]
-        weights = 1 / (1 + np.exp(np.mean(weights, axis=1)))
-
+        weights = map[xis, yis] 
+        weights = 1 / (1 + np.exp(np.mean(weights, axis=1))) * prev_weghts
         weights /= np.sum(weights)
-        resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
 
-        return resampled_indices, np.argmax(weights)
+        return weights
 
 
     def new_map_lidar(self, best_pos, map, idx_lidar):
@@ -245,7 +243,6 @@ class SLAM():
         map = self._update_map_occupancy(map, passthrough=r2, obstables=obstables)
 
         return map
-
 
     def _sample_motion_noise(self, n_particles):
         '''
@@ -292,57 +289,31 @@ class SLAM():
         right = (self.data['FR'] + self.data['RR']) / 2
         
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
-        particle_maps = np.zeros((self.n_particles, self.map_params['sizex'], self.map_params['sizey'])) # [n_particles, sizex, sizey] 
+        weights = np.ones((self.n_particles))
+        best_particple_idx = 0
         
         for t, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
             t_dummy = t + 1 # first timestep is a dummy
             pos[t_dummy] += pos[t_dummy-1]
             pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
             
-            if t_dummy == 1:
-                # skip resample for the first time point: need to build the consensus map
-                self.map = self.new_map_lidar(pos[t_dummy][0], self.map, idx)
-            else:                
-                # TODO: resample here!
-                resample_idx, best_particple_idx = self.new_resample_particle_from_map(pos[t_dummy], self.map, idx)
-                pos[t_dummy] = pos[t_dummy][resample_idx,...]
+            if t_dummy > 1:           
+                weights = self.update_weights(pos[t_dummy], self.map, weights, idx)
+        
+                # resample if insufficient effective particles
+                n_effective = (np.sum(weights))**2 / np.sum(weights**2)
+                if n_effective < self.n_particles / 0.75:
+                    resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
+                    best_particple_idx = np.argmax(weights)
+                    # update particles
+                    pos[t_dummy] = pos[t_dummy][resampled_idx,...]
+                    pos[t_dummy] += self._sample_motion_noise(self.n_particles) 
 
-                if t % self.seeding_interval == 0:
-                    pos[t_dummy] += self._sample_motion_noise(self.n_particles) # add noise
-
-                # pick the best particle
-                self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
+            # pick the best particle
+            self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
         self.pos = pos
         return self.map
     
-    # def odometry(self):
-    #     self.sync_timestamps() # sync encoder and lidar timestamps
-    #     left = (self.data['FL'] + self.data['RL']) / 2 # in mm
-    #     right = (self.data['FR'] + self.data['RR']) / 2
-
-    #     n_timesteps = len(self.data['idx_enc_to_lidar'])        
-    #     pos = np.zeros((n_timesteps+1, 1, 3)) # pos[t][p] = [theta, x, y]
-    #     particle_maps = np.zeros((1, self.map_params['sizex'], self.map_params['sizey'])) # [1, sizex, sizey] 
-    
-    #     for t, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
-    #         t_dummy = t + 1 # first timestep is a dummy
-    #         pos[t_dummy] += pos[t_dummy-1]
-    #         pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
-    #         particle_maps = self.map_lidar(pos[t_dummy], particle_maps, idx)
-
-    #     # particle_maps = np.zeros((1, self.map_params['sizex'], self.map_params['sizey'])) # [1, sizex, sizey] 
-    #     # n_timesteps = len(self.data['idx_lidar_to_enc'])        
-    #     # pos = np.zeros((n_timesteps+1, 1, 3)) # pos[t][p] = [theta, x, y]
-    #     # for t, idx in enumerate(tqdm(self.data['idx_lidar_to_enc'])):
-    #     #     t_dummy = t + 1 # first timestep is a dummy
-    #     #     pos[t_dummy] += pos[t_dummy-1]
-    #     #     pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[idx], right[idx])
-    #     #     particle_maps = self.map_lidar(pos[t_dummy], particle_maps, t)
-
-    #     # final update: write to self.map
-    #     self.map = particle_maps[0]
-    #     self.pos = pos
-    #     return self.map
     
     def get_pos(self, best=True):
         if self.best_particle and best:
