@@ -28,8 +28,8 @@ class SLAM():
 
         # particle filter params
         self.n_particles = 200  #recommended 30-100
-        self.xy_noise = 10  # std = 10mm
-        self.theta_noise = 5 * (2 * np.pi / 360) # std = 1 degree
+        self.xy_noise = 0  # std = 10mm
+        self.theta_noise = 0.1 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
         #lidar params
@@ -224,6 +224,8 @@ class SLAM():
 
         # remove self reflection and too far away points
         indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
+        ranges = ranges[indValid]
+        angles = angles[indValid]
 
         xs = ranges*np.cos(angles+theta_platform) + x_platform
         ys = ranges*np.sin(angles+theta_platform) + y_platform
@@ -319,6 +321,7 @@ class SLAM():
                 # TODO: resample here!
                 resample_idx, best_particple_idx = self.new_resample_particle_from_map(pos[t_dummy], self.map, idx)
                 pos[t_dummy] = pos[t_dummy][resample_idx,...]
+                pos[t_dummy] += self._sample_motion_noise(self.n_particles) # add noise
 
                 # pick the best particle
                 self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
