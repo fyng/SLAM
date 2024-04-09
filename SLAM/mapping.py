@@ -22,14 +22,14 @@ class SLAM():
 
         # map params
         self.map, self.map_params = self._init_map()
-        self.logodds_occ = 1.5  
-        self.logodds_free = -0.1 # 3 passthrough to wipe a hit
-        self.logodds_range = 20
+        self.logodds_occ = 1  
+        self.logodds_free = -0.01 # 3 passthrough to wipe a hit
+        self.logodds_range = 10
 
         # particle filter params
-        self.n_particles = 10  #recommended 30-100
-        self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 1 * (2 * np.pi / 360) # std = 1 degree
+        self.n_particles = 200  #recommended 30-100
+        self.xy_noise = 10  # std = 10mm
+        self.theta_noise = 5 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
         #lidar params
@@ -95,8 +95,8 @@ class SLAM():
             passthrough: [2, P] array of (x, y) indices of free cells
             obstables: [2, P_obst] array of (x, y) indices of occupied cells
         '''   
-        map[passthrough[0,:], passthrough[1,:]] += self.logodds_free
-        map[obstables[0,:], obstables[1,:]] += self.logodds_occ
+        map[passthrough[0,...], passthrough[1,...]] += self.logodds_free
+        map[obstables[0,...], obstables[1,...]] += self.logodds_occ
         return np.clip(map, -self.logodds_range, self.logodds_range)
 
     def map_lidar(self, pos, map, idx_lidar):
@@ -162,6 +162,87 @@ class SLAM():
         resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
 
         return resampled_indices
+    
+    def new_resample_particle_from_map(self, pos, map, idx_lidar):
+        '''
+        Given a set of particles and their position, calculate the lidar scan for each particle. 
+
+        At each wall, extract the score from the previous map. Weight the particles by the average of the wall scores -> sigmoid (avoid negative)
+
+        Params:
+            pos: [n_particles, 3] array of (theta, x, y). IN MILLIMETERS
+            map: [sizex, sizey] array of occupancy grid map
+            idx_lidar: index of corresponding lidar data in self.data['lidar']for the given pos 
+
+        Returns:
+            score: [n_particles] array of scores for each particle
+            best_particle: index of the best particle
+
+        '''
+        n_particles = pos.shape[0]
+        theta_platform = pos[:, 0].reshape(-1, 1)
+        x_platform = pos[:, 1].reshape(-1, 1) / 1000 # convert to meters
+        y_platform = pos[:, 2].reshape(-1, 1) / 1000 # convert to meters
+        ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
+        angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
+
+        # remove self reflection and too far away points
+        indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
+        ranges = np.tile(ranges[indValid], (n_particles, 1))
+        angles = np.tile(angles[indValid], (n_particles, 1))
+
+        xs = ranges*np.cos(angles+theta_platform) + x_platform
+        ys = ranges*np.sin(angles+theta_platform) + y_platform
+        x = self._x_meters_to_cells(x_platform)[0]
+        y = self._y_meters_to_cells(y_platform)[0]
+        xis = self._x_meters_to_cells(xs)[0]
+        yis = self._y_meters_to_cells(ys)[0]
+
+        weights = map[xis, yis]
+        weights = 1 / (1 + np.exp(np.mean(weights, axis=1)))
+
+        weights /= np.sum(weights)
+        resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
+
+        return resampled_indices, np.argmax(weights)
+
+
+    def new_map_lidar(self, best_pos, map, idx_lidar):
+        '''
+        Map lidar data: rays of (range, angle) to grid occupancy (x, y) on the map
+
+        Params:
+            best_pos: len=3. array of (theta, x, y). IN MILLIMETERS
+            map: [sizex, sizey] array of occupancy grid map
+            idx_lidar: index of corresponding lidar data in self.data['lidar']for the given pos 
+        '''
+        theta_platform, x_platform, y_platform = best_pos
+        x_platform /= 1000 # convert to meters
+        y_platform /= 1000 # convert to meters
+        ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
+        angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
+
+        # remove self reflection and too far away points
+        indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
+
+        xs = ranges*np.cos(angles+theta_platform) + x_platform
+        ys = ranges*np.sin(angles+theta_platform) + y_platform
+        x = self._x_meters_to_cells(x_platform)[0]
+        y = self._y_meters_to_cells(y_platform)[0]
+        xis = self._x_meters_to_cells(xs)[0]
+        yis = self._y_meters_to_cells(ys)[0]
+
+        r2 = maputils.getMapCellsFromRay_fclad(
+            x, y,
+            xis.reshape(-1), yis.reshape(-1),
+            self.map_params['sizex']
+        )
+        
+        # update map occupancy
+        map = self._update_map_occupancy(map, passthrough=r2, obstables=np.concatenate((xis, yis), axis=0))
+
+        return map
+
 
     def _sample_motion_noise(self, n_particles):
         '''
@@ -214,30 +295,42 @@ class SLAM():
             t_dummy = t + 1 # first timestep is a dummy
             pos[t_dummy] += pos[t_dummy-1]
             
-            if t_dummy == self.seeding_interval:
-                # save out the first consensus map
-                # no noise added so just take the first particle
-                self.map = particle_maps[0]
-            if t_dummy % self.seeding_interval == 0:
-                resampled_indices = self.resample_particle_from_map(particle_maps)
-                # update map with current best
-                best_particple = np.bincount(resampled_indices).argmax()
-                self.map = particle_maps[best_particple]
+            # if t_dummy == self.seeding_interval:
+            #     # save out the first consensus map
+            #     # no noise added so just take the first particle
+            #     self.map = particle_maps[0]
+            # if t_dummy % self.seeding_interval == 0:
+            #     resampled_indices = self.resample_particle_from_map(particle_maps)
+            #     # update map with current best
+            #     best_particple = np.bincount(resampled_indices).argmax()
+            #     self.map = particle_maps[best_particple]
 
-                # resample particles and their maps
-                pos[t_dummy] = pos[t_dummy][resampled_indices,...]
-                particle_maps = particle_maps[resampled_indices,...] 
-                pos[t_dummy] += self._sample_motion_noise(self.n_particles) # add noise
+            #     # resample particles and their maps
+            #     pos[t_dummy] = pos[t_dummy][resampled_indices,...]
+            #     particle_maps = particle_maps[resampled_indices,...] 
+            #     pos[t_dummy] += self._sample_motion_noise(self.n_particles) # add noise
 
             pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
-            particle_maps = self.map_lidar(pos[t_dummy], particle_maps, idx)
+            
+            if t_dummy == 1:
+                # skip resample for the first time point: need to build the consensus map
+                self.map = self.new_map_lidar(pos[t_dummy][0], self.map, idx)
+            else:                
+                # TODO: resample here!
+                resample_idx, best_particple_idx = self.new_resample_particle_from_map(pos[t_dummy], self.map, idx)
+                pos[t_dummy] = pos[t_dummy][resample_idx,...]
 
-        # final update: write to self.map
-        particle_weights = self.resample_particle_from_map(particle_maps)
-        best_particple = np.bincount(particle_weights).argmax()
-        self.map = particle_maps[best_particple]
+                # pick the best particle
+                self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
+        
+            # particle_maps = self.map_lidar(pos[t_dummy], particle_maps, idx)
+
+        # # final update: write to self.map
+        # particle_weights = self.resample_particle_from_map(particle_maps)
+        # best_particple = np.bincount(particle_weights).argmax()
+        # self.map = particle_maps[best_particple]
         self.pos = pos
-        self.best_particle = best_particple
+        # self.best_particle = best_particple
 
         return self.map
     

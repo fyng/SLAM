@@ -49,10 +49,10 @@ for run in list(data_dict.keys()):
 
     map = mapping.map_localize()
     plt.imshow(map, cmap='RdBu')
-    plt.savefig(f'plots/map{run}_10particles.png')
+    plt.savefig(f'plots/map{run}_100particles.png')
     plt.close()
 
-    pos = mapping.get_pos(best=False)
+    pos = mapping.get_pos()
     plt.plot(pos[...,1], pos[...,2], '-')
     plt.savefig(f'plots/map{run}_path_xy0theta1.png')
     plt.close()
