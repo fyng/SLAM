@@ -9,6 +9,7 @@ class SLAM():
     def __init__(self, width=470, wheel_radius=127, enc_to_rev=360):
         self.data = {}
         self.pos = None 
+        self.best_particle = None
 
         # Physical car parameters (units in mm)
         self.width = width
@@ -26,10 +27,10 @@ class SLAM():
         self.logodds_range = 20
 
         # particle filter params
-        self.n_particles = 40  #recommended 30-100
-        self.xy_noise = self.mapres * 1000 / 2 # std = 1 grid 
-        self.theta_noise = 2 * (2 * np.pi / 360) # std = 2 degree
-        self.seeding_interval = 30 # prune and reseed particles every 10 timesteps
+        self.n_particles = 10  #recommended 30-100
+        self.xy_noise = 10  # std = 10mm
+        self.theta_noise = 1 * (2 * np.pi / 360) # std = 1 degree
+        self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
         #lidar params
         self.lidar_minrange = 0.1
@@ -109,13 +110,12 @@ class SLAM():
         '''
         assert pos.shape[0] == map.shape[0]
         n_particles = pos.shape[0]
-
         theta_platform = pos[:, 0].reshape(-1, 1)
         x_platform = pos[:, 1].reshape(-1, 1) / 1000 # convert to meters
         y_platform = pos[:, 2].reshape(-1, 1) / 1000 # convert to meters
-
         ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
         angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
+
         # remove self reflection and too far away points
         indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
         ranges = np.tile(ranges[indValid], (n_particles, 1))
@@ -123,7 +123,6 @@ class SLAM():
 
         xs = ranges*np.cos(angles+theta_platform) + x_platform
         ys = ranges*np.sin(angles+theta_platform) + y_platform
-
         x = self._x_meters_to_cells(x_platform)[0]
         y = self._y_meters_to_cells(y_platform)[0]
         xis = self._x_meters_to_cells(xs)[0]
@@ -150,7 +149,7 @@ class SLAM():
             map: [n_particles, sizex, sizey] array of occupancy grid map
         '''
         n_particles = map.shape[0]
-        mask = (np.abs(self.map) > 1) # mask out unknown and low confidence regions
+        mask = (np.abs(self.map) > 0.2) # mask out unknown and low confidence regions
         prev_map = self.map[mask].reshape(1,-1)
         particle_maps = map[:,mask]
         weights = np.corrcoef(np.concatenate((prev_map, particle_maps), axis=0))[0][1:]
@@ -173,8 +172,8 @@ class SLAM():
         # sample noise from a gaussian distribution
         noise[:,0] = np.random.normal(0, self.theta_noise, n_particles)
         # try adding only rotation noise.
-        # noise[:,1] = np.random.normal(0, self.xy_noise, n_particles)
-        # noise[:,2] = np.random.normal(0, self.xy_noise, n_particles)
+        noise[:,1] = np.random.normal(0, self.xy_noise, n_particles)
+        noise[:,2] = np.random.normal(0, self.xy_noise, n_particles)
         return noise
 
     def dead_reckoning(self, pos, left_dist, right_dist):
@@ -235,10 +234,10 @@ class SLAM():
 
         # final update: write to self.map
         particle_weights = self.resample_particle_from_map(particle_maps)
-        print(particle_weights)
         best_particple = np.bincount(particle_weights).argmax()
         self.map = particle_maps[best_particple]
-        self.pos = pos[:,best_particple,-2:]
+        self.pos = pos
+        self.best_particle = best_particple
 
         return self.map
     
@@ -268,10 +267,13 @@ class SLAM():
 
         # final update: write to self.map
         self.map = particle_maps[0]
-        self.pos = pos[:,0,-2:]
+        self.pos = pos
         return self.map
     
-    def get_pos(self):
+    def get_pos(self, best=True):
+        if self.best_particle and best:
+            return self.pos[self.best_particle]
+        
         return self.pos
 
 
