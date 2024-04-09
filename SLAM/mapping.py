@@ -29,7 +29,7 @@ class SLAM():
         # particle filter params
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 0.1 * (2 * np.pi / 360) # std = 1 degree
+        self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
         #lidar params
@@ -299,15 +299,16 @@ class SLAM():
             
             if t_dummy > 1:           
                 weights = self.update_weights(pos[t_dummy], self.map, weights, idx)
-        
                 # resample if insufficient effective particles
                 n_effective = (np.sum(weights))**2 / np.sum(weights**2)
-                if n_effective < self.n_particles / 0.75:
+                print(n_effective)
+                if n_effective < self.n_particles * 0.75:
                     resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
                     best_particple_idx = np.argmax(weights)
                     # update particles
                     pos[t_dummy] = pos[t_dummy][resampled_idx,...]
                     pos[t_dummy] += self._sample_motion_noise(self.n_particles) 
+                    weights = np.ones((self.n_particles))
 
             # pick the best particle
             self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
