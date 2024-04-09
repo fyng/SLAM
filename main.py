@@ -47,22 +47,19 @@ for run in list(data_dict.keys()):
     mapping.load_lidar(data_dict[run]['Lidar'])
     mapping.load_imu(data_dict[run]['IMU'])
 
-    # map = mapping.map_localize()
-    # plt.imshow(map, cmap='RdBu')
-    # plt.savefig(f'plots/map{run}_particles.png')
-    # plt.close()
-
-    map = mapping.odometry()
+    map = mapping.map_localize()
     plt.imshow(map, cmap='RdBu')
-    plt.savefig(f'plots/test3_map{run}.png')
+    plt.savefig(f'plots/map{run}_10particles.png')
     plt.close()
 
-    # pos = mapping.get_pos()
-    # plt.plot(pos[...,0], pos[...,1], '-')
-    # plt.savefig(f'plots/map{run}_path.png')
-    # plt.close()
+    pos = mapping.get_pos(best=False)
+    plt.plot(pos[...,1], pos[...,2], '-')
+    plt.savefig(f'plots/map{run}_path_xy0theta1.png')
+    plt.close()
 
-    # plt.savefig(f'plots/path.png')
+    # map = mapping.odometry()
+    # plt.imshow(map, cmap='RdBu')
+    # plt.savefig(f'plots/test3_map{run}.png')
     # plt.close()
 
 

@@ -28,7 +28,7 @@ class SLAM():
 
         # particle filter params
         self.n_particles = 10  #recommended 30-100
-        self.xy_noise = 10  # std = 10mm
+        self.xy_noise = 0  # std = 10mm
         self.theta_noise = 1 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
