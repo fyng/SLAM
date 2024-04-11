@@ -1,0 +1,13 @@
+name: slam
+channels:
+- conda-forge
+dependencies:
+- cython
+- joblib
+- jupyterlab
+- matplotlib
+- numpy
+- python=3.11
+- scipy
+- tqdm
+
