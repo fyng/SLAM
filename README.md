@@ -21,10 +21,11 @@ micromamba env create -f environment.yml
 micromamba activate slam
 ```
 
-3. Install the model
-```
-pip install .
-```
+3. Create directory for data and plots
 
-4. Run the model
-In `demo.ipynb`, update the directory of the test folder. Then run all cells
+
+4. Run model
+In `main.py`, update the directory of the test folder. Chnage the car variables as needed
+```
+python main.py
+```
