@@ -39,28 +39,25 @@ enc_to_rev = 360
 
 # try to visualize one of the data point
 for run in list(data_dict.keys()):
-    print(run, data_dict[run]['Encoder'], width)
+    print(run, data_dict[run]['Encoder'])
 
     mapping = SLAM(width=width, wheel_radius=wheel_radius, enc_to_rev=enc_to_rev)
 
     mapping.load_encoder(data_dict[run]['Encoder'])
     mapping.load_lidar(data_dict[run]['Lidar'])
-    mapping.load_imu(data_dict[run]['IMU'])
+
+    # mapping.test_thing()
 
     map = mapping.map_localize()
-    plt.imshow(map, cmap='RdBu')
-    plt.savefig(f'plots/map{run}_100particles.png')
+    plt.imshow(map, cmap='hot')
+    plt.colorbar()
+    plt.savefig(f'new_plots/map{run}.png')
     plt.close()
 
     pos = mapping.get_pos()
     plt.plot(pos[...,1], pos[...,2], '-')
-    plt.savefig(f'plots/map{run}_path_xy0theta1.png')
+    plt.savefig(f'new_plots/map{run}_path.png')
     plt.close()
-
-    # map = mapping.odometry()
-    # plt.imshow(map, cmap='RdBu')
-    # plt.savefig(f'plots/test3_map{run}.png')
-    # plt.close()
 
 
         
