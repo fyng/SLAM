@@ -23,18 +23,18 @@ class SLAM():
         # map params
         self.map, self.map_params = self._init_map()
         self.logodds_occ = 1  
-        self.logodds_free = -0.05 # 3 passthrough to wipe a hit
-        self.logodds_range = 10
+        self.logodds_free = -0.1 # 3 passthrough to wipe a hit
+        self.logodds_range = 15
 
         # particle filter params
-        self.n_particles = 100  #recommended 30-100
+        self.n_particles = 1  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
+        self.theta_noise = 1 * (2 * np.pi / 360) # std = 1 degree
         self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
 
         #lidar params
         self.lidar_minrange = 0.1
-        self.lidar_maxrange = 30
+        self.lidar_maxrange = 25
 
     def _init_map(self):
         map_params = {}
@@ -60,7 +60,7 @@ class SLAM():
 
     def load_encoder(self, path):
         # load encoder data and convert to distance
-        FR, FL, RR, RL, ts = get_encoder(path)
+        FL, FR, RL, RR, ts = get_encoder(path)
         FL = self._encoder_ticks_to_dist(FL)
         FR = self._encoder_ticks_to_dist(FR)
         RL = self._encoder_ticks_to_dist(RL)
@@ -84,7 +84,7 @@ class SLAM():
         # align encoder to lidar timepoint
         t_lidar = [data['t'] for data in self.data['lidar']]
         self.data['idx_enc_to_lidar'] = [np.abs(t_lidar - t).argmin() for t in self.data['t_encoder']]
-        # self.data['idx_lidar_to_enc'] = [np.abs(self.data['t_encoder'] - t).argmin() for t in t_lidar]
+
 
     def _update_map_occupancy(self, map, passthrough, obstables):
         '''
@@ -99,70 +99,6 @@ class SLAM():
         map[obstables[0,...], obstables[1,...]] += self.logodds_occ
         return np.clip(map, -self.logodds_range, self.logodds_range)
 
-    # def map_lidar(self, pos, map, idx_lidar):
-    #     '''
-    #     Map lidar data: rays of (range, angle) to grid occupancy (x, y) on the map
-
-    #     Params:
-    #         pos: [n_particles, 3] array of (theta, x, y). IN MILLIMETERS
-    #         map: [n_particles, sizex, sizey] array of occupancy grid map
-    #         idx_lidar: index of corresponding lidar data in self.data['lidar']for the given pos 
-    #     '''
-    #     assert pos.shape[0] == map.shape[0]
-    #     n_particles = pos.shape[0]
-    #     theta_platform = pos[:, 0].reshape(-1, 1)
-    #     x_platform = pos[:, 1].reshape(-1, 1) / 1000 # convert to meters
-    #     y_platform = pos[:, 2].reshape(-1, 1) / 1000 # convert to meters
-    #     ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
-    #     angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
-
-    #     # remove self reflection and too far away points
-    #     indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
-    #     ranges = np.tile(ranges[indValid], (n_particles, 1))
-    #     angles = np.tile(angles[indValid], (n_particles, 1))
-
-    #     xs = ranges*np.cos(angles+theta_platform) + x_platform
-    #     ys = ranges*np.sin(angles+theta_platform) + y_platform
-    #     x = self._x_meters_to_cells(x_platform)[0]
-    #     y = self._y_meters_to_cells(y_platform)[0]
-    #     xis = self._x_meters_to_cells(xs)[0]
-    #     yis = self._y_meters_to_cells(ys)[0]
-
-    #     for i in range(pos.shape[0]):
-    #         r2 = maputils.getMapCellsFromRay_fclad(
-    #             x[i], y[i],
-    #             xis[i].reshape(-1), yis[i].reshape(-1),
-    #             self.map_params['sizex']
-    #         )
-    #         # update map occupancy
-    #         map[i] = self._update_map_occupancy(map[i], passthrough=r2, obstables=np.concatenate((xis[i].reshape(1,-1), yis[i].reshape(1,-1)), axis=0))
-
-    #     return map
-    
-    # def resample_particle_from_map(self, map):
-    #     '''
-    #     Resample particles based on the consensus map. The basic idea that if the environment is static, known regions of the map should stay as obstacle/empty space. 
-
-    #     1. If a region is not observed in the consensus map, mask it out from error computation. We cannot a priori say if the region is occupied or not.
-
-    #     params:
-    #         map: [n_particles, sizex, sizey] array of occupancy grid map
-    #     '''
-    #     n_particles = map.shape[0]
-    #     mask = (np.abs(self.map) > 0.2) # mask out unknown and low confidence regions
-    #     prev_map = self.map[mask].reshape(1,-1)
-    #     particle_maps = map[:,mask]
-    #     weights = np.corrcoef(np.concatenate((prev_map, particle_maps), axis=0))[0][1:]
-
-    #     # for i in range(n_particles):
-    #     #     # weigh by inverse of L2 distance
-    #     #     weights[i] = np.corrcoef(map[i][mask].reshape(-1), self.map[mask].reshape(-1))
-
-    #     weights /= np.sum(weights)
-    #     resampled_indices = np.random.choice(np.arange(n_particles), size=n_particles, replace=True, p=weights)
-
-    #     return resampled_indices
-    
     def update_weights(self, pos, map, prev_weghts, idx_lidar):
         '''
         Given a set of particles and their position, calculate the lidar scan for each particle. 
@@ -183,24 +119,22 @@ class SLAM():
         theta_platform = pos[:, 0].reshape(-1, 1)
         x_platform = pos[:, 1].reshape(-1, 1) / 1000 # convert to meters
         y_platform = pos[:, 2].reshape(-1, 1) / 1000 # convert to meters
-        ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1)
-        angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1) # in radians
-
+        ranges = self.data['lidar'][idx_lidar]['scan'].reshape(-1,1)
+        angles = self.data['lidar'][idx_lidar]['angle'].reshape(-1,1) # in radians
         # remove self reflection and too far away points
         indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
         ranges = np.tile(ranges[indValid], (n_particles, 1))
         angles = np.tile(angles[indValid], (n_particles, 1))
+        angles += theta_platform
 
-        xs = ranges*np.cos(angles+theta_platform) + x_platform
-        ys = ranges*np.sin(angles+theta_platform) + y_platform
-        x = self._x_meters_to_cells(x_platform)[0]
-        y = self._y_meters_to_cells(y_platform)[0]
+        xs = ranges*np.cos(angles) + x_platform
+        ys = ranges*np.sin(angles) + y_platform
         xis = self._x_meters_to_cells(xs)[0]
         yis = self._y_meters_to_cells(ys)[0]
 
-        weights = map[xis, yis] 
-        weights = 1 / (1 + np.exp(np.mean(weights, axis=1))) * prev_weghts
-        weights /= np.sum(weights)
+        weights = 1 / (1 + np.exp(np.mean(map[xis, yis] , axis=1))) # sigmoid
+        weights *= prev_weghts # update
+        weights /= np.sum(weights) # re-normalize
 
         return weights
 
@@ -224,9 +158,9 @@ class SLAM():
         indValid = np.logical_and((ranges < self.lidar_maxrange),(ranges > self.lidar_minrange))
         ranges = ranges[indValid]
         angles = angles[indValid]
+
         xs = ranges*np.cos(angles+theta_platform) + x_platform
         ys = ranges*np.sin(angles+theta_platform) + y_platform
-
         x = self._x_meters_to_cells(x_platform)[0]
         y = self._y_meters_to_cells(y_platform)[0]
         xis = self._x_meters_to_cells(xs)[0]
@@ -268,9 +202,9 @@ class SLAM():
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
         '''
-        pos[:,0] += (right_dist - left_dist) / self.width # theta update
-        pos[:,1] += (right_dist + left_dist) / 2 * np.cos(pos[:,0]) # x update
-        pos[:,2] += (right_dist + left_dist) / 2 * np.sin(pos[:,0]) # y update
+        pos[...,0] += (right_dist - left_dist) / self.width # theta update
+        pos[...,1] += (right_dist + left_dist) / 2 * np.cos(pos[...,0]) # x update
+        pos[...,2] += (right_dist + left_dist) / 2 * np.sin(pos[...,0]) # y update
 
         return pos
 
@@ -282,49 +216,58 @@ class SLAM():
 
         Operations are in meters. Grid discretization occurs at the final step.
         '''
-        self.sync_timestamps() # sync encoder and lidar timestamps
+        # self.sync_timestamps() # sync encoder and lidar timestamps
+        # n_timesteps = len(self.data['idx_enc_to_lidar'])
 
-        n_timesteps = len(self.data['idx_enc_to_lidar'])
-        left = (self.data['FL'] + self.data['RL']) / 2 # in mm
-        right = (self.data['FR'] + self.data['RR']) / 2
+        n_timesteps = min(len(self.data['lidar']), len(self.data['t_encoder']))
+        # left = (self.data['FL'] + self.data['RL']) / 2 # in mm
+        # right = (self.data['FR'] + self.data['RR']) / 2
+        left = self.data['FL'] # in mm
+        right = self.data['FR']
         
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
         weights = np.ones((self.n_particles))
-        best_particple_idx = 0
+        self.best_particle = 0
         
-        for t, idx in enumerate(tqdm(self.data['idx_enc_to_lidar'])):
-            t_dummy = t + 1 # first timestep is a dummy
-            pos[t_dummy] += pos[t_dummy-1]
-            pos[t_dummy] = self.dead_reckoning(pos[t_dummy], left[t], right[t])
+        for t in tqdm(np.arange(n_timesteps)):
+            pos[t] = self.dead_reckoning(pos[t], left_dist=left[t], right_dist=right[t])
             
-            if t_dummy > 1:           
-                weights = self.update_weights(pos[t_dummy], self.map, weights, idx)
-                # resample if insufficient effective particles
-                n_effective = (np.sum(weights))**2 / np.sum(weights**2)
-                print(n_effective)
-                if n_effective < self.n_particles * 0.75:
-                    resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
-                    best_particple_idx = np.argmax(weights)
-                    # update particles
-                    pos[t_dummy] = pos[t_dummy][resampled_idx,...]
-                    pos[t_dummy] += self._sample_motion_noise(self.n_particles) 
-                    weights = np.ones((self.n_particles))
+            # if t == 100: # add noise after cold start 
+            #     pos[t] += self._sample_motion_noise(self.n_particles)
 
-            # pick the best particle
-            self.map = self.new_map_lidar(pos[t_dummy][best_particple_idx], self.map, idx)
+            weights = self.update_weights(pos[t], self.map, weights, t)
+            n_effective = (np.sum(weights))**2 / np.sum(weights**2)
+            if n_effective < self.n_particles * 0.5:
+                # resample if insufficient effective particles
+                resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
+                self.best_particle = np.argmax(weights)
+                # update particles
+                pos[t+1] = pos[t][resampled_idx,...]
+                pos[t+1] += self._sample_motion_noise(self.n_particles) 
+                weights = np.ones((self.n_particles))
+            else:
+                pos[t+1] = pos[t]
+
+            # update map with the best particle
+            self.map = self.new_map_lidar(
+                best_pos=pos[t][self.best_particle], 
+                map=self.map, 
+                idx_lidar=t)
+            
+            # if t_dummy % 50 == 0:
+            #     plt.imshow(self.map, cmap='RdBu')
+            #     plt.savefig(f'new_plots/map{t_dummy}.png')
+
         self.pos = pos
         return self.map
     
-    
-    def get_pos(self, best=True):
+    def get_pos(self, best=False):
         if self.best_particle and best:
             return self.pos[self.best_particle]
         
         return self.pos
 
-
-
-
+    
     
 
 
