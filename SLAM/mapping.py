@@ -27,14 +27,13 @@ class SLAM():
         self.logodds_range = 15
 
         # particle filter params
-        self.n_particles = 1  #recommended 30-100
+        self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 1 * (2 * np.pi / 360) # std = 1 degree
-        self.seeding_interval = 40 # prune and reseed particles every 30 timesteps
+        self.theta_noise = 0.05 * (2 * np.pi / 360) # std = 1 degree
 
         #lidar params
         self.lidar_minrange = 0.1
-        self.lidar_maxrange = 25
+        self.lidar_maxrange = 30
 
     def _init_map(self):
         map_params = {}
@@ -187,8 +186,8 @@ class SLAM():
         # sample noise from a gaussian distribution
         noise[:,0] = np.random.normal(0, self.theta_noise, n_particles)
         # try adding only rotation noise.
-        # noise[:,1] = np.random.normal(0, self.xy_noise, n_particles)
-        # noise[:,2] = np.random.normal(0, self.xy_noise, n_particles)
+        noise[:,1] = np.random.normal(0, self.xy_noise, n_particles)
+        noise[:,2] = np.random.normal(0, self.xy_noise, n_particles)
         return noise
 
     def dead_reckoning(self, pos, left_dist, right_dist):
@@ -220,10 +219,10 @@ class SLAM():
         # n_timesteps = len(self.data['idx_enc_to_lidar'])
 
         n_timesteps = min(len(self.data['lidar']), len(self.data['t_encoder']))
-        # left = (self.data['FL'] + self.data['RL']) / 2 # in mm
-        # right = (self.data['FR'] + self.data['RR']) / 2
-        left = self.data['FL'] # in mm
-        right = self.data['FR']
+        left = (self.data['FL'] + self.data['RL']) / 2 # in mm
+        right = (self.data['FR'] + self.data['RR']) / 2
+        # left = self.data['FL'] # in mm
+        # right = self.data['FR']
         
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
         weights = np.ones((self.n_particles))
@@ -232,12 +231,12 @@ class SLAM():
         for t in tqdm(np.arange(n_timesteps)):
             pos[t] = self.dead_reckoning(pos[t], left_dist=left[t], right_dist=right[t])
             
-            # if t == 100: # add noise after cold start 
-            #     pos[t] += self._sample_motion_noise(self.n_particles)
+            if t == 50: # add noise after cold start 
+                pos[t] += self._sample_motion_noise(self.n_particles)
 
             weights = self.update_weights(pos[t], self.map, weights, t)
             n_effective = (np.sum(weights))**2 / np.sum(weights**2)
-            if n_effective < self.n_particles * 0.5:
+            if n_effective < self.n_particles * 0.7:
                 # resample if insufficient effective particles
                 resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
                 self.best_particle = np.argmax(weights)
