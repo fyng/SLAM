@@ -38,7 +38,7 @@ class SLAM():
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
         self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
-        self.theta_scale = 5 
+        self.theta_scale = 2 
         self.reseed_interval = 20
 
         #lidar params
@@ -212,11 +212,11 @@ class SLAM():
             right: int, distance travelled by right wheel since last timestep
         '''
         n_particles = pos.shape[-2]
-
         d_theta = (right_dist - left_dist) / self.width
+
         if noise:
-            variance = self.theta_scale * (np.abs(d_theta) + 1e-4)
-            d_theta = np.random.normal(0, variance, n_particles) + d_theta
+            variance = self.theta_scale * (np.abs(d_theta) + 1e-6)
+            d_theta = np.random.normal(d_theta, variance, n_particles)
 
         pos[:,0] += d_theta
         pos[:,1] += (right_dist + left_dist) / 2 * np.cos(pos[:,0]) # x update
@@ -257,7 +257,7 @@ class SLAM():
                     pos[t], left_dist=left[t], right_dist=right[t],
                     noise=True
                 )
-            elif t == 5: # initialize noise after cold start
+            elif t == 20: # initialize noise after cold start
                 pos[t] = self.dead_reckoning(
                     pos[t], left_dist=left[t], right_dist=right[t],
                     noise=True
