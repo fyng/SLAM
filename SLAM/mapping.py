@@ -13,7 +13,7 @@ class SLAM():
         enc_to_rev: int =360,
         mapsize: int = 55,
         mapres: float = 0.05,
-        n_particles: int = 300,
+        n_particles: int = 100,
     ):
         self.data = {}
         self.pos = None 
@@ -38,7 +38,7 @@ class SLAM():
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
         self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
-        self.theta_scale = 2 
+        self.theta_scale = 5 
         self.reseed_interval = 20
 
         #lidar params
@@ -211,14 +211,16 @@ class SLAM():
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
         '''
-        d_theta = (right_dist - left_dist) / self.width
-        pos[...,0] += d_theta
-        pos[...,1] += (right_dist + left_dist) / 2 * np.cos(pos[...,0]) # x update
-        pos[...,2] += (right_dist + left_dist) / 2 * np.sin(pos[...,0]) # y update
-
         n_particles = pos.shape[-2]
+
+        d_theta = (right_dist - left_dist) / self.width
         if noise:
-            pos[...,:,0] += np.random.normal(0, self.theta_scale * d_theta, n_particles)
+            variance = self.theta_scale * (np.abs(d_theta) + 1e-4)
+            d_theta = np.random.normal(0, variance, n_particles) + d_theta
+
+        pos[:,0] += d_theta
+        pos[:,1] += (right_dist + left_dist) / 2 * np.cos(pos[:,0]) # x update
+        pos[:,2] += (right_dist + left_dist) / 2 * np.sin(pos[:,0]) # y update
 
         return pos
 
@@ -244,13 +246,9 @@ class SLAM():
         
         for t in tqdm(np.arange(n_timesteps)):
             if n_effective < self.n_particles * 0.7:
-                # resample if insufficient effective particle
-            # if t > 0 and t % self.reseed_interval == 0:
-                # # resample at fixed internals
-
                 self.best_particle = np.argmax(weights)
-                # resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights) # resample with replacement
-                resampled_idx = np.repeat(self.best_particle, self.n_particles) # pick the best particle
+                resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights) # resample with replacement
+                # resampled_idx = np.repeat(self.best_particle, self.n_particles) # pick the best particle
                 pos[t] = pos[t][resampled_idx,...]
                 weights = np.ones((self.n_particles))
 
@@ -259,7 +257,7 @@ class SLAM():
                     pos[t], left_dist=left[t], right_dist=right[t],
                     noise=True
                 )
-            elif t == 20: # initialize noise after cold start
+            elif t == 5: # initialize noise after cold start
                 pos[t] = self.dead_reckoning(
                     pos[t], left_dist=left[t], right_dist=right[t],
                     noise=True
