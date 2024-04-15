@@ -6,7 +6,15 @@ from SLAM.MapUtils import MapUtils as maputils_py
 from tqdm import tqdm
 
 class SLAM():
-    def __init__(self, width=470, wheel_radius=127, enc_to_rev=360):
+    def __init__(
+        self, 
+        width: int = 470, 
+        wheel_radius: int =127, 
+        enc_to_rev: int =360,
+        mapsize: int = 55,
+        mapres: float = 0.05,
+        n_particles: int = 300,
+    ):
         self.data = {}
         self.pos = None 
         self.best_particle = None
@@ -29,7 +37,8 @@ class SLAM():
         # particle filter params
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 0.05 * (2 * np.pi / 360) # std = 1 degree
+        self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
+        self.reseed_interval = 20
 
         #lidar params
         self.lidar_minrange = 0.1
@@ -190,7 +199,7 @@ class SLAM():
         noise[:,2] = np.random.normal(0, self.xy_noise, n_particles)
         return noise
 
-    def dead_reckoning(self, pos, left_dist, right_dist):
+    def dead_reckoning(self, pos, left_dist, right_dist, noise=False):
         '''
         update position for each particle.
 
@@ -201,9 +210,15 @@ class SLAM():
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
         '''
-        pos[...,0] += (right_dist - left_dist) / self.width # theta update
+        d_theta = (right_dist - left_dist) / self.width
+        pos[...,0] += d_theta
         pos[...,1] += (right_dist + left_dist) / 2 * np.cos(pos[...,0]) # x update
         pos[...,2] += (right_dist + left_dist) / 2 * np.sin(pos[...,0]) # y update
+
+        n_particles = pos.shape[-2]
+        if noise:
+            pos[...,:,0] += np.random.normal(0, self.theta_noise * d_theta, n_particles)
+            return pos, noise
 
         return pos
 
@@ -221,25 +236,35 @@ class SLAM():
         n_timesteps = min(len(self.data['lidar']), len(self.data['t_encoder']))
         left = (self.data['FL'] + self.data['RL']) / 2 # in mm
         right = (self.data['FR'] + self.data['RR']) / 2
-        # left = self.data['FL'] # in mm
-        # right = self.data['FR']
         
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
         weights = np.ones((self.n_particles))
         self.best_particle = 0
         
         for t in tqdm(np.arange(n_timesteps)):
-            pos[t] = self.dead_reckoning(pos[t], left_dist=left[t], right_dist=right[t])
+            prev_map = self.map.copy()
+
+            pos[t] = self.dead_reckoning(
+                pos[t], 
+                left_dist=left[t], 
+                right_dist=right[t],
+                noise=False)
             
-            if t == 50: # add noise after cold start 
+            if t == 20: # add noise after cold start 
                 pos[t] += self._sample_motion_noise(self.n_particles)
 
-            weights = self.update_weights(pos[t], self.map, weights, t)
+            weights = self.update_weights(pos[t], prev_map, weights, t)
+
             n_effective = (np.sum(weights))**2 / np.sum(weights**2)
             if n_effective < self.n_particles * 0.7:
                 # resample if insufficient effective particles
-                resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
+
+            # if t > 0 and t % self.reseed_interval == 0:
+
                 self.best_particle = np.argmax(weights)
+                # resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
+                resampled_idx = np.repeat(self.best_particle, self.n_particles)
+
                 # update particles
                 pos[t+1] = pos[t][resampled_idx,...]
                 pos[t+1] += self._sample_motion_noise(self.n_particles) 
