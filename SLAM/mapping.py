@@ -38,6 +38,7 @@ class SLAM():
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
         self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
+        self.theta_scale = 2 
         self.reseed_interval = 20
 
         #lidar params
@@ -217,8 +218,7 @@ class SLAM():
 
         n_particles = pos.shape[-2]
         if noise:
-            pos[...,:,0] += np.random.normal(0, self.theta_noise * d_theta, n_particles)
-            return pos, noise
+            pos[...,:,0] += np.random.normal(0, self.theta_scale * d_theta, n_particles)
 
         return pos
 
@@ -240,37 +240,38 @@ class SLAM():
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
         weights = np.ones((self.n_particles))
         self.best_particle = 0
+        n_effective = self.n_particles
         
         for t in tqdm(np.arange(n_timesteps)):
-            prev_map = self.map.copy()
-
-            pos[t] = self.dead_reckoning(
-                pos[t], 
-                left_dist=left[t], 
-                right_dist=right[t],
-                noise=False)
-            
-            if t == 20: # add noise after cold start 
-                pos[t] += self._sample_motion_noise(self.n_particles)
-
-            weights = self.update_weights(pos[t], prev_map, weights, t)
-
-            n_effective = (np.sum(weights))**2 / np.sum(weights**2)
             if n_effective < self.n_particles * 0.7:
-                # resample if insufficient effective particles
-
+                # resample if insufficient effective particle
             # if t > 0 and t % self.reseed_interval == 0:
+                # # resample at fixed internals
 
                 self.best_particle = np.argmax(weights)
-                # resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights)
-                resampled_idx = np.repeat(self.best_particle, self.n_particles)
-
-                # update particles
-                pos[t+1] = pos[t][resampled_idx,...]
-                pos[t+1] += self._sample_motion_noise(self.n_particles) 
+                # resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights) # resample with replacement
+                resampled_idx = np.repeat(self.best_particle, self.n_particles) # pick the best particle
+                pos[t] = pos[t][resampled_idx,...]
                 weights = np.ones((self.n_particles))
+
+                # update particle position with noise
+                pos[t] = self.dead_reckoning(
+                    pos[t], left_dist=left[t], right_dist=right[t],
+                    noise=True
+                )
+            elif t == 20: # initialize noise after cold start
+                pos[t] = self.dead_reckoning(
+                    pos[t], left_dist=left[t], right_dist=right[t],
+                    noise=True
+                )
             else:
-                pos[t+1] = pos[t]
+                pos[t] = self.dead_reckoning(
+                    pos[t], left_dist=left[t], right_dist=right[t],
+                    noise=False
+                )
+            
+            weights = self.update_weights(pos[t], self.map, weights, t)
+            n_effective = (np.sum(weights))**2 / np.sum(weights**2)
 
             # update map with the best particle
             self.map = self.new_map_lidar(
@@ -278,7 +279,8 @@ class SLAM():
                 map=self.map, 
                 idx_lidar=t)
             
-            # if t_dummy % 50 == 0:
+            pos[t+1] = pos[t]
+
             #     plt.imshow(self.map, cmap='RdBu')
             #     plt.savefig(f'new_plots/map{t_dummy}.png')
 
