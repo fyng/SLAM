@@ -38,7 +38,7 @@ class SLAM():
         self.n_particles = 100  #recommended 30-100
         self.xy_noise = 0  # std = 10mm
         self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
-        self.theta_scale = 2 
+        self.theta_scale = 0 
         self.reseed_interval = 20
 
         #lidar params
@@ -215,7 +215,7 @@ class SLAM():
         d_theta = (right_dist - left_dist) / self.width
 
         if noise:
-            variance = self.theta_scale * (np.abs(d_theta) + 1e-6)
+            variance = self.theta_scale * np.abs(d_theta)
             d_theta = np.random.normal(d_theta, variance, n_particles)
 
         pos[:,0] += d_theta
