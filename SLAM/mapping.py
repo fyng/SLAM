@@ -11,9 +11,7 @@ class SLAM():
         width: int = 470, 
         wheel_radius: int =127, 
         enc_to_rev: int =360,
-        mapsize: int = 55,
-        mapres: float = 0.05,
-        n_particles: int = 100,
+        slam: bool = True
     ):
         self.data = {}
         self.pos = None 
@@ -23,27 +21,26 @@ class SLAM():
         self.width = width
         self.wheel_radius = wheel_radius
         self.enc_to_rev = enc_to_rev
-
         # map params (units in meters)
         self.mapsize = 55 # seems good enough from the current plots
         self.mapres = 0.05 
-
         # map params
         self.map, self.map_params = self._init_map()
         self.logodds_occ = 1  
         self.logodds_free = -0.1 # 3 passthrough to wipe a hit
         self.logodds_range = 15
-
-        # particle filter params
-        self.n_particles = 100  #recommended 30-100
-        self.xy_noise = 0  # std = 10mm
-        self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
-        self.theta_scale = 0 
-        self.reseed_interval = 20
-
         #lidar params
         self.lidar_minrange = 0.1
         self.lidar_maxrange = 30
+
+        # particle filter params
+        self.slam = slam
+        self.n_particles = 100 if slam else 1  #recommended 30-100
+        self.xy_noise = 0  # std = 10mm
+        self.theta_noise = 0.5 * (2 * np.pi / 360) # std = 1 degree
+        self.theta_scale = 0.25 
+        self.reseed_interval = 20
+
 
     def _init_map(self):
         map_params = {}
@@ -141,7 +138,7 @@ class SLAM():
         xis = self._x_meters_to_cells(xs)[0]
         yis = self._y_meters_to_cells(ys)[0]
 
-        weights = 1 / (1 + np.exp(np.mean(map[xis, yis] , axis=1))) # sigmoid
+        weights = 1 / (1 + np.exp(-np.mean(map[xis, yis] , axis=1))) # sigmoid
         weights *= prev_weghts # update
         weights /= np.sum(weights) # re-normalize
 
@@ -211,12 +208,12 @@ class SLAM():
             left_distance: int, distance travelled by left wheel since last timestep
             right: int, distance travelled by right wheel since last timestep
         '''
-        n_particles = pos.shape[-2]
+        n_particles = pos.shape[0]
         d_theta = (right_dist - left_dist) / self.width
 
-        if noise:
+        if noise and self.slam:
             variance = self.theta_scale * np.abs(d_theta)
-            d_theta = np.random.normal(d_theta, variance, n_particles)
+            d_theta = np.random.normal(d_theta, variance, size=n_particles)
 
         pos[:,0] += d_theta
         pos[:,1] += (right_dist + left_dist) / 2 * np.cos(pos[:,0]) # x update
@@ -240,15 +237,16 @@ class SLAM():
         right = (self.data['FR'] + self.data['RR']) / 2
         
         pos = np.zeros((n_timesteps+1, self.n_particles, 3)) # pos[t][p] = [theta, x, y]
-        weights = np.ones((self.n_particles))
+        weights = np.ones((self.n_particles)) / self.n_particles
         self.best_particle = 0
         n_effective = self.n_particles
         
         for t in tqdm(np.arange(n_timesteps)):
-            if n_effective < self.n_particles * 0.7:
+            # if n_effective < self.n_particles * 0.7:
+            if t % 10 == 0:
                 self.best_particle = np.argmax(weights)
-                resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights) # resample with replacement
-                # resampled_idx = np.repeat(self.best_particle, self.n_particles) # pick the best particle
+                # resampled_idx = np.random.choice(np.arange(self.n_particles), size=self.n_particles, replace=True, p=weights) # resample with replacement
+                resampled_idx = np.repeat(self.best_particle, self.n_particles) # pick the best particle
                 pos[t] = pos[t][resampled_idx,...]
                 weights = np.ones((self.n_particles))
 
@@ -257,11 +255,11 @@ class SLAM():
                     pos[t], left_dist=left[t], right_dist=right[t],
                     noise=True
                 )
-            elif t == 20: # initialize noise after cold start
-                pos[t] = self.dead_reckoning(
-                    pos[t], left_dist=left[t], right_dist=right[t],
-                    noise=True
-                )
+            # elif t == 20: # initialize noise after cold start
+            #     pos[t] = self.dead_reckoning(
+            #         pos[t], left_dist=left[t], right_dist=right[t],
+            #         noise=True
+            #     )
             else:
                 pos[t] = self.dead_reckoning(
                     pos[t], left_dist=left[t], right_dist=right[t],
@@ -278,9 +276,6 @@ class SLAM():
                 idx_lidar=t)
             
             pos[t+1] = pos[t]
-
-            #     plt.imshow(self.map, cmap='RdBu')
-            #     plt.savefig(f'new_plots/map{t_dummy}.png')
 
         self.pos = pos
         return self.map
