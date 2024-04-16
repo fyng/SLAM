@@ -53,18 +53,47 @@ For each time point, a contact updates the log-probability of a grid coordinate 
 
 
 ## 3. SLAM
+The intuition of SLAM is that adding noise to the position and orientation of particles can correct for rolling with slipping or non-optimal parameter choice for the robot. In my implementation, 200 particles are seeded. Noise is added to the particles every $n$ iterations. Noise is only added to $\theta$, which will effectively add noise to $x, y$ as the particles independently evolve. In particular, I chose to scale the noise as a function of the current $d\theta$. This helps correct for unoptimal robot width - if the robot is not turning, there is no $\theta$ error, but the $\theta$ error increases when the turn is sharp. The scaling factor is parameterized by `theta_scale`
 
+Each particle has a weight, which is updated at each time step by the correspondance between the particle's map and the current best map. The correspondence is measured by the log-probability of the pixel that is detected as occupied. 
+$$corr = \sigma(\sum_{i \in{\text{lidar obstacles}}} \text{occupancy grid}_i)$$
+The better the correspondance, the higher the sum. The value is passed through a sigmoid to ensure non-negativity, and multiplied to the weight of the previous timepoint before re-normalizing. 
+$$w_{t+1} = w_t \times corr$$
+
+The 'exploration' of the particles are determined by the reseeding interval. The intuition is that the LIDAR of the robot only covers the forward cone, so sufficient time needs to occur between reseeding to allow the robot to turn such that it will encounter previous obstacles in its field of view. However, if the reseeding interval is too long, the robot will completely deviate off course and loss its dead_reckoning. I experimented with constant reseeding intervals and found it best to dynamically set the reseeding interval by checking the number of effective particles. Resampling when $n_effective < 0.8$ works well.
+$$\text{n\_{effective}} = \frac{\sum w^2}{(\sum w)^2}$$
+
+During reseeding, the particles with higher overall correspondence have a higher probability of being selected. The probability is determined by the weight of the particle. The particles are sampled *with replacement* using the weights until 200 particles are reselected. After reseeding, all particle weights will be reset to be uniform
 
 # Results
+For the naive algorithm (odometry only), I used 730 mm as the width, which produced the most reasonable path traces. The SLAM algorithm further refined the alignment of wall features and reduced the "smearing effect" of wheels slipping during turns.
+
+The naive algorithms maps poorly at width = 500 mm, but using the SLAM algorithm recovers the geometry of the mapping, although the overall rotation of the map with respect to the grid suffers.
+
 **Test dataset:**
-TODO: add images for odometry only
-TODO: add images for SLAM
 
-Train split:
-TODO: add images
-
-Validation split:
-TODO: ADD Images
+Occupancy Map - Odometry only, width = 730 mm | Path - Odometry only, width = 730 mm | Occupancy Map - SLAM, width = 730 mm | Path - SLAM, width = 730 mm
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+![](figures/map22_730_baseline.png)  |  ![](figures/map22_path_730_baseline.png) | ![](figures/map22_730_slam.png)  |  ![](figures/map22_path_730_slam.png)
+![](figures/map24_730_baseline.png)  |  ![](figures/map24_path_730_baseline.png) | ![](figures/map24_730_slam.png)  |  ![](figures/map24_path_730_slam.png)
 
 
-# Appendix
+| Occupancy Map - Odometry only, width = 500 mm | Path - Odometry only, width = 500 mm | Occupancy Map - SLAM, width = 500 mm | Path - SLAM, width = 500 mm|
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+![](figures/map22_500_baseline.png)  |  ![](figures/map22_path_500_baseline.png) | ![](figures/map22_500_slam.png)  |  ![](figures/map22_path_500_slam.png)
+![](figures/map24_500_baseline.png)  |  ![](figures/map24_path_500_baseline.png) | ![](figures/map24_500_slam.png)  |  ![](figures/map24_path_500_slam.png)
+
+**Train dataset:**
+
+| Occupancy Map - Odometry only, width = 730 mm | Path - Odometry only, width = 730 mm | Occupancy Map - SLAM, width = 730 mm | Path - SLAM, width = 730 mm|
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+![](figures/map20_730_baseline.png)  |  ![](figures/map20_path_730_baseline.png) | ![](figures/map20_730_slam.png)  |  ![](figures/map20_path_730_slam.png)
+![](figures/map21_730_baseline.png)  |  ![](figures/map21_path_730_baseline.png) | ![](figures/map21_730_slam.png)  |  ![](figures/map21_path_730_slam.png)
+![](figures/map23_730_baseline.png)  |  ![](figures/map23_path_730_baseline.png) | ![](figures/map23_730_slam.png)  |  ![](figures/map23_path_730_slam.png)
+
+
+| Occupancy Map - Odometry only, width = 500 mm | Path - Odometry only, width = 500 mm | Occupancy Map - SLAM, width = 500 mm | Path - SLAM, width = 500 mm|
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+![](figures/map20_500_baseline.png)  |  ![](figures/map20_path_500_baseline.png) | ![](figures/map20_500_slam.png)  |  ![](figures/map20_path_500_slam.png)
+![](figures/map21_500_baseline.png)  |  ![](figures/map21_path_500_baseline.png) | ![](figures/map21_500_slam.png)  |  ![](figures/map21_path_500_slam.png)
+![](figures/map23_500_baseline.png)  |  ![](figures/map23_path_500_baseline.png) | ![](figures/map23_500_slam.png)  |  ![](figures/map23_path_500_slam.png)
